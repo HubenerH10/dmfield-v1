@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
-:root{
+:root, html[data-tema="escuro"]{
   --bg:#0E1015; --painel:#161922; --painel-2:#1C2029; --borda:#262B36;
   --texto:#EDEFF3; --texto-2:#9BA3B0; --texto-3:#6B7382;
   --vermelho:#E4002B; --vermelho-fundo:rgba(228,0,43,.14);
@@ -17,6 +17,17 @@
   --verde:#27AE60; --verde-fundo:rgba(39,174,96,.14);
   --ambar:#E8A33D; --ambar-fundo:rgba(232,163,61,.14);
 }
+html[data-tema="claro"]{
+  --bg:#F4F5F7; --painel:#FFFFFF; --painel-2:#F7F8FA; --borda:#E3E6EA;
+  --texto:#16181C; --texto-2:#5C646E; --texto-3:#858D98;
+  --vermelho:#CB0028; --vermelho-fundo:rgba(203,0,40,.08);
+  --azul:#1B6FA8; --azul-fundo:rgba(27,111,168,.10);
+  --verde:#0E7A3C; --verde-fundo:rgba(14,122,60,.10);
+  --ambar:#9A6400; --ambar-fundo:rgba(154,100,0,.10);
+}
+html[data-tema="claro"] .painel,
+html[data-tema="claro"] .kpi{box-shadow:0 1px 2px rgba(22,24,28,.05)}
+html[data-tema="claro"] nav{box-shadow:0 -1px 3px rgba(22,24,28,.05)}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg)}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
@@ -120,6 +131,9 @@ nav svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.9;
   <div class="logo">DM<span>BANDEIRANTES</span></div>
   <h1 id="tituloTela">Acompanhamento</h1>
   <div class="quando" id="carimbo">carregando</div>
+  <button class="recarrega" id="btTema" onclick="virarTema()" title="Alternar tema">
+    <svg id="iconeTema" viewBox="0 0 24 24"></svg>
+  </button>
   <button class="recarrega" onclick="carregar()" title="Atualizar">
     <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>
   </button>
@@ -170,8 +184,30 @@ const EXPLICA = {DIG:"cadastro no app com a primeira compra",
                  GDM1:"primeira geladeira do ponto", GDM2:"geladeira adicional",
                  STILL:"linha Still, exceto água", SSD:"KUAT, Sprite e Fanta zero"};
 
-let dados=null, eu="", aba="resumo";
+let dados=null, eu="", aba="resumo", tema="escuro";
 try{ eu=localStorage.getItem(CHAVE)||""; }catch(e){}
+/* Tema: respeita a escolha guardada; na primeira vez segue o sistema. */
+try{
+  const salvo=localStorage.getItem(CHAVE+"_tema");
+  if(salvo) tema=salvo;
+  else if(window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches) tema="claro";
+}catch(e){}
+const LUA='<path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1z"/>';
+const SOL='<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+function aplicarTema(){
+  document.documentElement.setAttribute("data-tema",tema);
+  const ic=document.getElementById("iconeTema");
+  if(ic) ic.innerHTML = tema==="escuro" ? SOL : LUA;
+  const m=document.querySelector('meta[name="theme-color"]');
+  if(m) m.setAttribute("content", tema==="escuro" ? "#0E1015" : "#FFFFFF");
+  const b=document.getElementById("btTema");
+  if(b) b.title = tema==="escuro" ? "Mudar para o tema claro" : "Mudar para o tema escuro";
+}
+function virarTema(){
+  tema = tema==="escuro" ? "claro" : "escuro";
+  try{ localStorage.setItem(CHAVE+"_tema",tema); }catch(e){}
+  aplicarTema();
+}
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,
   m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -341,11 +377,40 @@ function telaVendas(d){
 /* ---------- equipe ---------- */
 function telaEquipe(){
   const L=dados.devs;
-  const tot=L.reduce((a,d)=>({h:a.h+d.hoje,r:a.r+d.registros,v:a.v+d.visitas}),{h:0,r:0,v:0});
+  /* consolidado da equipe: soma o que cada um fez e o que cada um tem de meta */
+  const T={hoje:0,reg:0,vis:0,metaVis:0,base:0,liberados:0,verificar:0,semGps:0};
+  const P={};
+  L.forEach(function(d){
+    T.hoje+=d.hoje; T.reg+=d.registros; T.vis+=d.visitas;
+    T.metaVis+=d.metaVisita; T.base+=d.baseAjustada;
+    if(d.gatilho)T.liberados++;
+    T.verificar+=d.verificar; T.semGps+=d.semGps;
+    Object.keys(d.pilares).forEach(function(k){
+      if(!P[k])P[k]={conv:0,meta:0,oport:0};
+      P[k].conv+=d.pilares[k].conv; P[k].meta+=d.pilares[k].meta; P[k].oport+=d.pilares[k].oport;
+    });
+  });
+  const atingMedio=L.length?L.reduce((a,d)=>a+d.indice,0)/L.length:0;
   let h='<div class="faixa">'+
-    '<div class="kpi destaque"><div class="rot">Registros hoje</div><div class="val">'+tot.h+"</div></div>"+
-    '<div class="kpi"><div class="rot">Visitas no mês</div><div class="val">'+tot.v+"</div></div>"+
-    '<div class="kpi"><div class="rot">Total registrado</div><div class="val">'+tot.r+"</div></div></div>";
+    '<div class="kpi destaque"><div class="rot">Registros hoje</div><div class="val">'+T.hoje+
+      '</div><div class="pe">'+T.reg+" no mês</div></div>"+
+    '<div class="kpi'+(T.vis>=T.metaVis?" ok":"")+'"><div class="rot">Visita da base</div><div class="val">'+
+      (T.base?Math.round(T.vis/T.base*100):0)+'%</div><div class="pe">'+T.vis+" de "+T.metaVis+"</div></div>"+
+    '<div class="kpi"><div class="rot">Gatilho liberado</div><div class="val">'+T.liberados+" / "+L.length+
+      '</div><div class="pe">desenvolvedores</div></div>'+
+    '<div class="kpi"><div class="rot">Atingimento médio</div><div class="val">'+pc(atingMedio)+
+      '%</div><div class="pe">das metas do mês</div></div></div>';
+
+  h+='<div class="painel"><h2>Consolidado das metas <small>equipe inteira</small></h2><div class="corpo">';
+  ["DIG","GDM1","GDM2","STILL","SSD"].forEach(function(k){
+    const x=P[k]; if(!x||!x.meta)return;
+    const f=Math.max(0,x.meta-x.conv);
+    h+='<div class="metaLinha"><div class="metaTopo"><b>'+esc(NOME[k]||k)+
+      '</b><span class="n">'+x.conv+" <i>/ "+x.meta+"</i></span></div>"+prog(x.conv,x.meta)+
+      '<div class="metaPe"><span>'+x.oport+" oportunidades na equipe</span><span>"+
+      (f?f+" para a meta":"meta batida")+"</span></div></div>";
+  });
+  h+="</div></div>";
 
   h+='<div class="painel"><h2>Parcial por visita</h2><div class="rolagem"><table>'+
     '<tr><th>Desenvolvedor</th><th>Rota</th><th class="n">Base</th><th class="n">Registros</th>'+
@@ -356,6 +421,8 @@ function telaEquipe(){
       '</td><td class="n">'+d.visitas+'</td><td class="n">'+
       '<span class="selo '+(d.gatilho?"ok":"esperando")+'">'+pc(d.pcVisita)+"%</span></td></tr>";
   });
+  h+='<tr class="total"><td>Total</td><td></td><td class="n">'+T.base+'</td><td class="n">'+T.reg+
+    '</td><td class="n">'+T.vis+'</td><td class="n">'+(T.base?Math.round(T.vis/T.base*100):0)+"%</td></tr>";
   h+="</table></div></div>";
 
   h+='<div class="painel"><h2>Cobertura por pilar <small>realizado / meta</small></h2><div class="rolagem"><table>'+
@@ -367,6 +434,10 @@ function telaEquipe(){
       c("DIG")+'</td><td class="n">'+c("GDM1")+'</td><td class="n">'+c("GDM2")+'</td><td class="n">'+
       c("STILL")+'</td><td class="n">'+c("SSD")+'</td><td class="n"><b>'+pc(d.indice)+"%</b></td></tr>";
   });
+  const ct=k=>P[k]&&P[k].meta?P[k].conv+' <span class="mini">/ '+P[k].meta+"</span>":"—";
+  h+='<tr class="total"><td>Total</td><td class="n">'+ct("DIG")+'</td><td class="n">'+ct("GDM1")+
+    '</td><td class="n">'+ct("GDM2")+'</td><td class="n">'+ct("STILL")+'</td><td class="n">'+
+    ct("SSD")+'</td><td class="n">'+pc(atingMedio)+"%</td></tr>";
   h+="</table></div></div>";
 
   if(dados.temVendas){
@@ -383,6 +454,12 @@ function telaEquipe(){
         '</td><td class="n">'+pc(t)+"%</td></tr>";
     });
     h+="</table></div></div>";
+  }
+  if(T.verificar||T.semGps){
+    h+='<div class="painel"><h2>Conferência de localização</h2><div class="rolagem"><table>'+
+      '<tr><td class="nome">Fora do raio do PDV</td><td class="n">'+T.verificar+"</td></tr>"+
+      '<tr><td class="nome">Sem GPS capturado</td><td class="n">'+T.semGps+"</td></tr>"+
+      "</table></div></div>";
   }
   return h;
 }
@@ -417,6 +494,7 @@ function telaRota(d){
   return h;
 }
 
+aplicarTema();
 carregar();
 setInterval(carregar,5*60*1000);
 </script>
