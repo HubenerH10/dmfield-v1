@@ -1,5 +1,5 @@
 /* DM Field — cache offline. Troque a versão a cada nova subida do index.html. */
-const CACHE = 'dmfield-ago2026-v8';
+const CACHE = 'dmfield-set2026-v2';
 const ARQ = ['index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', function (e) {
@@ -14,8 +14,8 @@ self.addEventListener('activate', function (e) {
 });
 
 self.addEventListener('fetch', function (e) {
-  if (e.request.method !== 'GET') return;                       // POST do Apps Script passa direto
-  if (e.request.url.indexOf('script.google.com') > -1) return;  // nunca cachear a sincronização
+  if (e.request.method !== 'GET') return;
+  if (e.request.url.indexOf('script.google.com') > -1) return;
   e.respondWith(
     caches.match(e.request).then(function (hit) {
       const rede = fetch(e.request).then(function (r) {
