@@ -62,6 +62,8 @@ textarea{min-height:70px;resize:vertical}
 .bar b em{font-style:normal;color:var(--red);font-weight:800}
 .mini{margin-left:auto;background:#fff;border:1.5px solid var(--line);border-radius:99px;
   padding:8px 13px;font-size:13px;font-weight:600;color:var(--blue)}
+.campo{width:100%;padding:13px 14px;border:1.5px solid var(--line);border-radius:12px;background:#fff}
+.campo:focus{outline:none;border-color:var(--red)}
 .search{width:100%;padding:13px 14px 13px 40px;border:1.5px solid var(--line);border-radius:12px;
   background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238C939C' stroke-width='2'><circle cx='11' cy='11' r='7'/><path d='m20 20-3.5-3.5'/></svg>") 13px center no-repeat}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:11px 0 3px;scrollbar-width:none}
@@ -93,7 +95,9 @@ textarea{min-height:70px;resize:vertical}
   padding:3px 9px;border-radius:99px;text-decoration:none}
 .tags{display:flex;flex-wrap:wrap;gap:5px;padding:0 14px 12px}
 .tg{font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:8px;background:var(--bg);color:var(--ink2)}
-.tg.pil{background:#FDEBEF;color:#8E0E29} .tg.dia{background:var(--blue-bg);color:var(--blue)}
+.tg.pil{background:#FDEBEF;color:#8E0E29}
+.tg.fat{background:#E1F5EA;color:#0A5F2F}
+.tg.agu{background:#FFF3DC;color:#7A4A05} .tg.dia{background:var(--blue-bg);color:var(--blue)}
 .tg.pot{background:#FFF3DC;color:#7A4A05} .tg.gc{background:#EEEDFE;color:#3A3287}
 .res{margin:0 14px 12px;padding:10px 12px;border-radius:11px;font-size:12.5px;line-height:1.45}
 .res.ok{background:var(--ok-bg);color:#0A5F2F} .res.no{background:var(--no-bg);color:var(--no)}
@@ -267,7 +271,7 @@ function diaDeHoje(){
 }
 
 /* ---------------- estado ---------------- */
-let S={nome:"",dev:"",vis:{}};
+let S={nome:"",dev:"",vis:{},sac:null};   // sac = último retorno de faturamento
 let scr="onb", fDia="hoje", fPil="todos", fSt="pend", busca="", cur=null, tmp=null, ultimo=null;
 try{const x=localStorage.getItem(CHAVE); if(x)S=Object.assign(S,JSON.parse(x));}catch(e){}
 function save(){try{localStorage.setItem(CHAVE,JSON.stringify(S));}catch(e){toast("Sem espaço no aparelho");}}
@@ -336,7 +340,7 @@ function render(){
 function vOnb(){
   return '<h2 class="t">Selecione sua base</h2><p class="sub">Identifique-se e escolha o seu nome.</p>'+
     '<label class="f">Seu nome: <i>*</i></label>'+
-    '<input class="search" style="padding-left:14px" id="nm" value="'+esc(S.nome)+'" placeholder="Como você assina" oninput="S.nome=this.value">'+
+    '<input class="campo" id="nm" value="'+esc(S.nome)+'" placeholder="Como você assina" oninput="S.nome=this.value">'+
     '<div class="grid2">'+DEVS.map(d=>{
       const n=ROTA.filter(c=>c.dev===d).length, f=ROTA.filter(c=>c.dev===d&&S.vis[c.id]).length;
       return '<button class="rotacard'+(S.dev===d?" on":"")+'" onclick="S.dev=\''+d+'\';save();render()">'+
@@ -348,7 +352,7 @@ function entrar(){
   const nm=document.getElementById("nm"); if(nm)S.nome=nm.value.trim();
   if(!S.nome){toast("Informe seu nome");return;}
   if(!S.dev){toast("Escolha a sua base");return;}
-  save();fDia="hoje";fSt="pend";tela("lista");
+  save();fDia="hoje";fSt="pend";tela("lista");buscarSac(true);
 }
 
 /* ---------------- lista ---------------- */
@@ -420,7 +424,10 @@ function card(c){
   const v=reg()[c.id], ok=feito(c);
   const cls=v?(ok?"ok":(v.status==="PDV fechado permanentemente"?"bx":"na")):"";
   const maps="https://www.google.com/maps/search/?api=1&query="+c.lat+","+c.lon;
-  const tags=c.pil.map(p=>'<span class="tg pil">'+esc(PILAR[p].n)+"</span>").join("")+
+  const tags=(faturado(c.id)?'<span class="tg fat">✓ faturado</span>':
+      (v&&EFET[v.status]&&positivo("DIG",(v.resp||{}).DIG)&&S.sac&&S.sac.tem
+        ?'<span class="tg agu">aguardando faturamento</span>':""))+
+    c.pil.map(p=>'<span class="tg pil">'+esc(PILAR[p].n)+"</span>").join("")+
     '<span class="tg dia">Dia '+c.dia+" · "+dataDoDia(c.dia)+" · seq "+c.seq+"</span>"+
     '<span class="tg">'+esc(c.seg)+'</span><span class="tg gc">GC '+esc(c.gc)+"</span>";
   let h='<div class="c '+cls+'"><div class="ch"><div class="av">'+esc(ini(c.nome))+"</div><div>"+
@@ -625,6 +632,25 @@ function vParc(){
     'o deslocamento aconteceu. Só não conta na conversão, que mede venda.'+
     (m.fora?" Os "+m.fora+" retirados saíram do denominador: sua base passou de "+m.base+" para "+m.baseAj+".":"")+
     "</p></div>";
+  if(S.sac&&S.sac.tem){
+    const dig=(m.pil.DIG?m.pil.DIG.conv:0), fat=S.sac.digital, dif=dig-fat;
+    const tx=S.sac.pendentes&&dig?Math.round((dig-S.sac.pendentes.length)/dig*100):0;
+    h+='<div class="blk"><h3>Registrado x faturado</h3>'+
+      '<div class="kg"><div class="k b"><b>'+dig+'</b><span>você registrou</span></div>'+
+      '<div class="k g"><b>'+fat+'</b><span>o SAC faturou</span></div></div>'+
+      (dif>0?'<p class="note"><b>'+dif+"</b> cliente(s) que você marcou como cadastro com "+
+        "primeira venda ainda não apareceram como compra no app. Vale confirmar se o pedido "+
+        "foi concluído.</p>":'<p class="note">Tudo que você registrou já aparece faturado.</p>');
+    if(S.sac.pendentes&&S.sac.pendentes.length){
+      h+='<div style="margin-top:6px">'+S.sac.pendentes.slice(0,12).map(function(p){
+        return '<div class="row"><span class="a">'+esc(p.cliente)+'</span>'+
+          '<span class="b2">PV '+esc(p.pv)+"</span></div>";}).join("")+"</div>";
+      if(S.sac.pendentes.length>12)
+        h+='<p class="note">e mais '+(S.sac.pendentes.length-12)+" cliente(s).</p>";
+    }
+    h+='<p class="note">Faturamento atualizado em '+esc(S.sac.quando)+
+       ". O pedido de hoje pode entrar só na próxima carga.</p></div>";
+  }
   h+='<div class="blk"><h3>Gatilho de visita</h3>'+
     barra("Visita da base",m.vis,m.baseAj,m.alvoVis,MIN_VIS,"libera as demais metas")+"</div>";
   h+='<div class="blk"><h3>Metas do mês</h3>';
@@ -641,6 +667,7 @@ function vParc(){
   h+='<div class="blk"><h3>Enviar para o Sheets</h3>'+
     '<button class="cta" style="margin-top:0" onclick="sinc(false)">Sincronizar agora</button>'+
     '<p class="lg">'+(pend?pend+" registro(s) aguardando envio.":"Tudo sincronizado.")+"</p>"+
+    '<button class="cta o" onclick="buscarSac(false)">Atualizar faturamento</button>'+
     '<button class="cta o" onclick="csv()">⬇ Baixar CSV</button>'+
     '<p class="lg">Horário sempre em Brasília (UTC−3), independente do relógio do celular.</p></div>';
   return h;
@@ -690,11 +717,38 @@ function sinc(sil){
     save();if(!sil)toast("Enviado: "+pend.length+" registro(s)");render();})
   .catch(()=>{if(!sil)toast("Sem conexão — tente de novo com sinal");});
 }
-window.addEventListener("online",()=>sinc(true));
+window.addEventListener("online",()=>{sinc(true);buscarSac(true);});
+
+/* ---------------- retorno do faturamento ----------------
+   O mesmo endpoint que alimenta o painel devolve, para a carteira
+   do desenvolvedor, quais clientes já apareceram faturados no SAC.
+   Fica guardado no aparelho, então continua visível sem sinal. */
+function buscarSac(silencioso){
+  if(!SYNC_URL||SYNC_URL.indexOf("http")!==0)return;
+  if(!S.dev)return;
+  if(typeof fetch!=="function")return;
+  const url=SYNC_URL+"?acao=painel&dev="+encodeURIComponent(S.dev)+"&_="+Date.now();
+  fetch(url).then(r=>r.json()).then(function(d){
+    if(!d||!d.ok||!d.devs||!d.devs.length)return;
+    const x=d.devs[0];
+    S.sac={quando:d.atualizado,tem:!!d.temVendas,
+           faturados:(x.vendas&&x.vendas.faturados)||[],
+           pendentes:(x.vendas&&x.vendas.pendentes)||[],
+           digital:(x.vendas&&x.vendas.digital)||0,
+           still:(x.vendas&&x.vendas.still)||0,
+           ssd:(x.vendas&&x.vendas.ssd)||0};
+    save();
+    if(scr==="parciais"||scr==="lista")render();
+  }).catch(function(){ if(!silencioso)toast("Não deu para buscar o faturamento"); });
+}
+function faturado(id){
+  return !!(S.sac&&S.sac.faturados&&S.sac.faturados.indexOf(String(id))>=0);
+}
 
 /* ---------------- start ---------------- */
 scr = S.dev && S.nome ? "lista" : "onb";
 render();
+if(S.dev && navigator.onLine) buscarSac(true);
 if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));}
 </script>
 </body>

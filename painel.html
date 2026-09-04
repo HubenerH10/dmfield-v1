@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Acompanhamento DM · Bandeirantes</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <meta name="theme-color" content="#0E1015">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -56,7 +57,14 @@ button,select{font:inherit;color:inherit;cursor:pointer;border:0;background:none
 .campo{background:var(--painel);border:1px solid var(--borda);border-radius:8px;
   padding:9px 12px;display:flex;align-items:center;gap:8px;min-width:0}
 .campo label{font-size:10.5px;color:var(--texto-3);letter-spacing:.04em}
-.campo select{font-size:14px;font-weight:600;appearance:none;padding-right:14px;max-width:160px}
+.campo select{font-size:14px;font-weight:600;appearance:none;max-width:170px;
+  padding-right:20px;cursor:pointer;
+  background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239BA3B0' stroke-width='2.5' stroke-linecap='round'><path d='M6 9l6 6 6-6'/></svg>") right center no-repeat}
+.campo:focus-within{border-color:var(--azul)}
+.busca{background:var(--painel);border:1px solid var(--borda);border-radius:8px;
+  padding:9px 12px;flex:1;min-width:180px;color:var(--texto);font-size:14px}
+.busca::placeholder{color:var(--texto-3)}
+.busca:focus{outline:none;border-color:var(--azul)}
 .campo select option{background:var(--painel);color:var(--texto)}
 .tag-fonte{margin-left:auto;font-size:11px;color:var(--texto-3);display:flex;align-items:center;gap:6px}
 .ponto{width:7px;height:7px;border-radius:50%;background:var(--verde);flex:0 0 auto}
@@ -111,6 +119,12 @@ td.nome{font-weight:600;white-space:normal}
 .metaTopo .n i{font-style:normal;color:var(--texto-3);font-weight:500}
 .metaPe{display:flex;justify-content:space-between;font-size:11.5px;color:var(--texto-3);margin-top:5px}
 
+.solta{border:1.5px dashed var(--borda);border-radius:10px;padding:26px 20px;text-align:center;
+  color:var(--texto-2);transition:.15s;cursor:pointer}
+.solta:hover,.solta.sobre{border-color:var(--azul);background:var(--azul-fundo);color:var(--texto)}
+.solta b{display:block;color:var(--texto);font-size:15px;margin-bottom:4px}
+.solta small{display:block;margin-top:8px;font-size:11.5px;color:var(--texto-3)}
+.solta.erro{border-color:var(--vermelho);background:var(--vermelho-fundo)}
 .vazio{padding:32px 20px;text-align:center;color:var(--texto-2)}
 .vazio b{display:block;color:var(--texto);font-size:15px;margin-bottom:5px}
 .nota{font-size:11.5px;color:var(--texto-3);padding:10px 16px 14px;line-height:1.6;margin:0}
@@ -164,6 +178,10 @@ nav svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.9;
     <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M16 6.2a3 3 0 0 1 0 5.6M17.5 19a5.6 5.6 0 0 0-1.7-4"/></svg>
     Equipe
   </button>
+  <button id="nav-clientes" onclick="verAba('clientes')">
+    <svg viewBox="0 0 24 24"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg>
+    Clientes
+  </button>
   <button id="nav-rota" onclick="verAba('rota')">
     <svg viewBox="0 0 24 24"><path d="M12 21s6.5-5.4 6.5-10.2A6.5 6.5 0 0 0 5.5 10.8C5.5 15.6 12 21 12 21z"/><circle cx="12" cy="10.6" r="2.3"/></svg>
     Roteiro
@@ -185,6 +203,7 @@ const EXPLICA = {DIG:"cadastro no app com a primeira compra",
                  STILL:"linha Still, exceto água", SSD:"KUAT, Sprite e Fanta zero"};
 
 let dados=null, eu="", aba="resumo", tema="escuro";
+let cli={dev:"",lista:null,carregando:false}, busca="";
 try{ eu=localStorage.getItem(CHAVE)||""; }catch(e){}
 /* Tema: respeita a escolha guardada; na primeira vez segue o sistema. */
 try{
@@ -241,7 +260,8 @@ function usar(d){
   if(!eu||!d.devs.some(x=>x.dev===eu)) eu=s.options[0].value;
   s.value=eu;
   document.getElementById("fonteVendas").innerHTML = d.temVendas
-    ? '<span class="ponto"></span>SAC: '+d.linhasVendas+" clientes"
+    ? '<span class="ponto"></span>SAC: '+d.linhasVendas+" clientes"+
+      (d.cargaSac?" · "+esc(d.cargaSac):"")
     : '<span class="ponto frio"></span>SAC ainda não colado';
   desenhar();
 }
@@ -250,10 +270,33 @@ function falhou(t,p){
   document.getElementById("conteudo").innerHTML=
     '<div class="painel"><div class="vazio"><b>'+esc(t)+"</b>"+esc(p)+"</div></div>";
 }
-function trocar(v){eu=v;try{localStorage.setItem(CHAVE,v);}catch(e){}desenhar();}
+function trocar(v){eu=v;try{localStorage.setItem(CHAVE,v);}catch(e){}
+  cli={dev:"",lista:null,carregando:false};desenhar();}
+
+/* ---------- clientes do desenvolvedor ---------- */
+function buscarClientes(){
+  if(cli.carregando)return;
+  cli.carregando=true; cli.dev=eu;
+  const url=ENDPOINT+"?acao=clientes&dev="+encodeURIComponent(eu)+"&_="+Date.now();
+  const pronto=function(d){
+    cli.carregando=false;
+    cli.lista=(d&&d.ok)?d.clientes:[];
+    if(aba==="clientes")pintarClientes();
+  };
+  if(typeof fetch!=="function"){jsonpGen(url,pronto);return;}
+  fetch(url).then(r=>r.json()).then(pronto).catch(()=>jsonpGen(url,pronto));
+}
+function jsonpGen(url,cb){
+  const fn="cc"+Date.now();
+  window[fn]=d=>{delete window[fn];s.remove();cb(d);};
+  const s=document.createElement("script");
+  s.src=url+"&callback="+fn;
+  s.onerror=()=>{s.remove();cb(null);};
+  document.body.appendChild(s);
+}
 function verAba(a){
   aba=a;
-  ["resumo","vendas","equipe","rota"].forEach(k=>
+  ["resumo","vendas","equipe","clientes","rota"].forEach(k=>
     document.getElementById("nav-"+k).classList.toggle("ativo",k===a));
   desenhar(); window.scrollTo(0,0);
 }
@@ -261,11 +304,18 @@ function desenhar(){
   if(!dados)return;
   const d=meu();
   document.getElementById("tituloTela").textContent=
-    ({resumo:"Acompanhamento",vendas:"Registrado x faturado",equipe:"Equipe",rota:"Roteiro"})[aba];
+    ({resumo:"Acompanhamento",vendas:"Registrado x faturado",equipe:"Equipe",
+       clientes:"Clientes",rota:"Roteiro"})[aba];
   document.getElementById("barraFiltros").classList.toggle("oculto",aba==="equipe");
   document.getElementById("conteudo").innerHTML=
     aba==="resumo"?telaResumo(d):aba==="vendas"?telaVendas(d):
-    aba==="equipe"?telaEquipe():telaRota(d);
+    aba==="equipe"?telaEquipe():aba==="clientes"?telaClientes():telaRota(d);
+  if(aba==="vendas")prepararSolta();
+  if(aba==="clientes"){
+    const b=document.getElementById("buscaCli");
+    if(b){b.value=busca;b.oninput=function(){busca=this.value;pintarClientes();};}
+    if(!cli.lista||cli.dev!==eu)buscarClientes();else pintarClientes();
+  }
 }
 function prog(v,alvo){
   const p=alvo?Math.min(100,v/alvo*100):0;
@@ -324,13 +374,154 @@ function telaResumo(d){
 }
 
 /* ---------- vendas ---------- */
+function areaImport(){
+  return '<div class="painel"><h2>Carregar o SAC <small>'+
+    (dados.cargaSac?"última carga: "+esc(dados.cargaSac):"nenhuma carga ainda")+"</small></h2>"+
+    '<div class="corpo"><div class="solta" id="solta" onclick="document.getElementById(\'arq\').click()">'+
+    "<b>Arraste aqui o arquivo do SAC</b>"+
+    "ou clique para escolher · aceita .xlsx e .csv"+
+    "<small>O arquivo é lido no seu navegador e só a cobertura por cliente é enviada. "+
+    "A carga vale para todo mundo: time e painel passam a ver na hora.</small></div>"+
+    '<input type="file" id="arq" accept=".xlsx,.xls,.csv" style="display:none" '+
+    'onchange="lerArquivo(this.files[0])"><div id="statusImp"></div></div></div>';
+}
+function prepararSolta(){
+  const z=document.getElementById("solta"); if(!z)return;
+  ["dragenter","dragover"].forEach(ev=>z.addEventListener(ev,e=>{
+    e.preventDefault();e.stopPropagation();z.classList.add("sobre");}));
+  ["dragleave","drop"].forEach(ev=>z.addEventListener(ev,e=>{
+    e.preventDefault();e.stopPropagation();z.classList.remove("sobre");}));
+  z.addEventListener("drop",e=>{
+    const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(f)lerArquivo(f);
+  });
+}
+function avisoImp(txt,cor){
+  const e=document.getElementById("statusImp");
+  if(e)e.innerHTML='<p class="nota" style="color:'+(cor||"var(--texto-2)")+'">'+txt+"</p>";
+}
+
+/* Lê o arquivo do SAC no navegador. Se houver mais de uma aba com
+   cobertura, mostra as opções em vez de escolher sozinho. */
+let achados=null, arqNome="";
+function lerArquivo(f){
+  if(!f)return;
+  if(typeof XLSX==="undefined"){
+    avisoImp("A biblioteca de leitura não carregou. Recarregue a página.","var(--ambar)");return;}
+  arqNome=f.name;
+  avisoImp("Lendo "+esc(f.name)+"…");
+  const r=new FileReader();
+  r.onload=function(ev){
+    let wb;
+    try{ wb=XLSX.read(ev.target.result,{type:"array"}); }
+    catch(e){avisoImp("Não consegui abrir o arquivo. Ele é o export do SAC?","var(--vermelho)");return;}
+    achados=[];
+    wb.SheetNames.forEach(function(nome){
+      let M;
+      try{ M=XLSX.utils.sheet_to_json(wb.Sheets[nome],{header:1,raw:true,defval:""}); }
+      catch(e){ return; }
+      const pac=extrairSac(M);
+      if(pac) achados.push({aba:nome,pacote:pac});
+    });
+    if(!achados.length){
+      avisoImp("Não achei o bloco de cobertura em nenhuma aba. O arquivo precisa ter a coluna "+
+        "<b>Cód. Cliente</b> e as colunas D-1 e ONLINE por categoria.","var(--vermelho)");
+      return;
+    }
+    mostrarAchados();
+  };
+  r.onerror=function(){avisoImp("Falha ao ler o arquivo.","var(--vermelho)");};
+  r.readAsArrayBuffer(f);
+}
+/* Confirmação antes de enviar: qual aba, quantos clientes, quantos batem com a base. */
+function mostrarAchados(){
+  const naBase=(pac)=>{
+    if(!cli.pvBase)return null;
+    let n=0;
+    pac.linhas.forEach(function(l){ if(cli.pvBase[String(l[0])])n++; });
+    return n;
+  };
+  let h='<div class="painel" style="margin-top:14px"><h2>Confira antes de enviar <small>'+
+    esc(arqNome)+"</small></h2><div class='rolagem'><table>"+
+    "<tr><th>Aba do arquivo</th><th class='n'>Clientes</th><th class='n'>Categorias</th><th></th></tr>";
+  achados.forEach(function(a,i){
+    h+="<tr><td class='nome'>"+esc(a.aba)+"</td><td class='n'>"+a.pacote.linhas.length+
+      "</td><td class='n'>"+a.pacote.cats.length+"</td>"+
+      "<td class='n'><button class='selo neutro' style='border:0;cursor:pointer' "+
+      "onclick='confirmarEnvio("+i+")'>usar esta</button></td></tr>";
+  });
+  h+="</table></div>";
+  if(achados.length>1)
+    h+='<p class="nota">O arquivo tem mais de uma aba com cobertura. '+
+       "Escolha a que corresponde à base que vocês analisam.</p>";
+  else
+    h+='<p class="nota">Clientes fora da carteira dos desenvolvedores são ignorados no cruzamento, '+
+       "então não atrapalham.</p>";
+  h+="</div>";
+  const e=document.getElementById("statusImp");
+  if(e)e.innerHTML=h;
+}
+function confirmarEnvio(i){
+  const a=achados[i];
+  avisoImp("Enviando "+a.pacote.linhas.length+" clientes da aba <b>"+esc(a.aba)+"</b>…");
+  enviarSac(a.pacote,arqNome+" · "+a.aba);
+}
+/* Mesma leitura que o script faz: acha o cabeçalho e mapeia D-1 / ONLINE. */
+function extrairSac(M){
+  let hdr=-1,colPV=-1;
+  for(let r=0;r<Math.min(12,M.length)&&hdr<0;r++){
+    for(let c=0;c<(M[r]||[]).length;c++){
+      const t=String(M[r][c]||"").trim();
+      if(t==="Cód. Cliente"||t.toLowerCase().indexOf("cliente")===0){hdr=r;colPV=c;break;}
+    }
+  }
+  if(hdr<1)return null;
+  const catRow=M[hdr-1]||[];
+  const mapa={}; let atual="";
+  for(let c=0;c<(M[hdr]||[]).length;c++){
+    const cat=String(catRow[c]||"").trim();
+    if(cat)atual=cat;
+    const sub=String(M[hdr][c]||"").trim().toUpperCase();
+    if(sub!=="D-1"&&sub!=="ONLINE")continue;
+    const k=atual.toUpperCase();
+    if(!mapa[k])mapa[k]={};
+    mapa[k][sub==="D-1"?"d1":"on"]=c;
+  }
+  const cats=Object.keys(mapa);
+  if(!cats.length)return null;
+  const linhas=[];
+  for(let r=hdr+1;r<M.length;r++){
+    const pv=String((M[r]||[])[colPV]||"").trim();
+    if(!pv||isNaN(Number(pv)))continue;
+    const l=[pv];
+    cats.forEach(function(cat){
+      l.push(Number(M[r][mapa[cat].d1])||0);
+      l.push(Number(M[r][mapa[cat].on])||0);
+    });
+    linhas.push(l);
+  }
+  return linhas.length?{cats:cats,linhas:linhas}:null;
+}
+function enviarSac(pacote,nome){
+  fetch(ENDPOINT,{method:"POST",mode:"no-cors",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({tipo:"vendas",cats:pacote.cats,linhas:pacote.linhas,
+      arquivo:nome,quem:eu})})
+  .then(function(){
+    avisoImp("Carga enviada. Atualizando os números…","var(--verde)");
+    setTimeout(carregar,2500);
+  })
+  .catch(function(){avisoImp("Não deu para enviar. Confira a conexão.","var(--vermelho)");});
+}
+
 function telaVendas(d){
   if(!d)return semDev();
   if(!dados.temVendas){
-    return '<div class="painel"><h2>Faturamento</h2><div class="vazio">'+
-      "<b>O SAC ainda não foi carregado</b>"+
-      "Cole o export do SAC na aba Analytics (Vendas) da planilha. Assim que colar, esta tela "+
-      "compara o que foi registrado no app com o que foi faturado.</div></div>";
+    return areaImport()+
+      '<div class="painel"><h2>Faturamento</h2><div class="vazio">'+
+      "<b>Nenhuma carga do SAC ainda</b>"+
+      "Assim que o arquivo for carregado acima, esta tela compara o que foi registrado no app "+
+      "com o que foi faturado.</div></div>";
   }
   const v=d.vendas||{digital:0,still:0,ssd:0,declarados:0,confirmados:0,pendentes:[]};
   const dig=d.pilares.DIG?d.pilares.DIG.conv:0;
@@ -371,6 +562,7 @@ function telaVendas(d){
     h+='</table></div><p class="nota">Você marcou cadastro com primeira venda, mas o SAC ainda não '+
        "mostra compra pelo app. Vale confirmar se o pedido foi concluído.</p></div>";
   }
+  h+=areaImport();
   return h;
 }
 
@@ -462,6 +654,61 @@ function telaEquipe(){
       "</table></div></div>";
   }
   return h;
+}
+
+/* ---------- clientes ---------- */
+function telaClientes(){
+  return '<div class="painel"><h2>Buscar cliente <small id="contaCli"></small></h2>'+
+    '<div class="corpo" style="padding-bottom:8px">'+
+    '<input class="busca" id="buscaCli" style="width:100%" '+
+    'placeholder="Nome do cliente, PV ou bairro"></div>'+
+    '<div id="listaCli"></div></div>';
+}
+function pintarClientes(){
+  const alvo=document.getElementById("listaCli");
+  if(!alvo)return;
+  if(cli.carregando||!cli.lista){
+    alvo.innerHTML='<div class="vazio">Carregando os registros de '+esc(eu)+"…</div>";
+    return;
+  }
+  const q=busca.trim().toLowerCase();
+  const L=cli.lista.filter(function(c){
+    if(!q)return true;
+    return (c.cliente+" "+c.pv+" "+(c.bairro||"")+" "+(c.cidade||"")).toLowerCase().indexOf(q)>=0;
+  });
+  const cont=document.getElementById("contaCli");
+  if(cont)cont.textContent=cli.lista.length+" registrado(s)"+(q?" · "+L.length+" no filtro":"");
+  if(!cli.lista.length){
+    alvo.innerHTML='<div class="vazio"><b>Nenhum registro ainda</b>'+
+      esc(eu)+" não registrou visitas neste mês.</div>";
+    return;
+  }
+  if(!L.length){alvo.innerHTML='<div class="vazio">Nenhum cliente encontrado.</div>';return;}
+  let h='<div class="rolagem"><table>'+
+    '<tr><th>PV</th><th>Cliente</th><th>Dia</th><th>Registro</th>'+
+    '<th>Situação</th><th>Resultado</th><th class="n">GPS</th></tr>';
+  L.slice(0,200).forEach(function(c){
+    const ef=["Visita realizada","2ª visita","3ª visita"].indexOf(c.status)>=0;
+    const res=[];
+    if(c.digital)res.push("Digital: "+c.digital);
+    if(c.gdm1)res.push("1ª gel.: "+c.gdm1);
+    if(c.gdm2)res.push("2ª gel.: "+c.gdm2);
+    if(c.still)res.push("Still: "+c.still);
+    if(c.ssd)res.push("SSD: "+c.ssd);
+    if(!res.length&&c.motivo)res.push(c.motivo);
+    h+="<tr><td>"+esc(c.pv)+'</td><td class="nome">'+esc(c.cliente)+
+      '<div class="mini">'+esc(c.bairro||"")+"</div></td>"+
+      '<td class="mini">'+esc(c.dia||"")+"</td>"+
+      '<td class="mini">'+esc(c.data||"")+"<br>"+esc(String(c.hora||"").slice(0,5))+"</td>"+
+      '<td><span class="selo '+(ef?"ok":"esperando")+'">'+esc(c.status)+"</span>"+
+      (c.faturado?' <span class="selo ok">✓ faturado</span>':"")+"</td>"+
+      '<td class="mini" style="white-space:normal;max-width:230px">'+esc(res.join(" · "))+"</td>"+
+      '<td class="n">'+(c.verificar?'<span class="selo alerta">'+esc(c.verificar)+"</span>"
+        :(c.distancia!==""&&c.distancia!=null?c.distancia+" m":"—"))+"</td></tr>";
+  });
+  h+="</table></div>";
+  if(L.length>200)h+='<p class="nota">Mostrando os 200 primeiros. Refine a busca.</p>';
+  alvo.innerHTML=h;
 }
 
 /* ---------- roteiro ---------- */
