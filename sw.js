@@ -1,5 +1,5 @@
 /* DM Field — cache offline. Troque a versão a cada nova subida do index.html. */
-const CACHE = 'dmfield-set2026-v4';
+const CACHE = 'dmfield-set2026-v5';
 const ARQ = ['index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', function (e) {
